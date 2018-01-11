@@ -2,6 +2,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Com.GitHub.ZachDeibert.ProxyConfigurer.Config;
+using Com.GitHub.ZachDeibert.ProxyConfigurer.Dns;
 using Com.GitHub.ZachDeibert.ProxyConfigurer.Pac;
 
 namespace Com.GitHub.ZachDeibert.ProxyConfigurer {
@@ -22,9 +23,11 @@ namespace Com.GitHub.ZachDeibert.ProxyConfigurer {
             );
             CTS = new CancellationTokenSource();
             Console.CancelKeyPress += Interrupted;
-            using (PacServer pac = new PacServer(cfg)) {
-                Console.WriteLine("Server is running!");
-                Task.Delay(int.MaxValue, CTS.Token).Wait();
+            using (DnsServer dns = new DnsServer(cfg)) {
+                using (PacServer pac = new PacServer(cfg)) {
+                    Console.WriteLine("Server is running!");
+                    Task.Delay(int.MaxValue, CTS.Token).Wait();
+                }
             }
         }
     }

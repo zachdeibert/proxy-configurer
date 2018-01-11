@@ -7,7 +7,7 @@ using Com.GitHub.ZachDeibert.ProxyConfigurer.Config;
 
 namespace Com.GitHub.ZachDeibert.ProxyConfigurer.Pac {
     public class PacServer : IDisposable {
-        bool Disposed = false;
+        bool Disposed;
         TcpListener Listener;
         string PacFile;
 
