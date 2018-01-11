@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 
 namespace Com.GitHub.ZachDeibert.ProxyConfigurer.Collections {
     public class CacheDictionary<TKey, TValue> : IDisposable where TValue : CacheEntry {
+        static readonly TimeSpan MinimumTTL = TimeSpan.FromSeconds(1);
         Dictionary<TKey, TValue> Values;
         Dictionary<TKey, CancellationTokenSource> Callbacks;
         CancellationTokenSource DisposedToken;
@@ -36,7 +37,11 @@ namespace Com.GitHub.ZachDeibert.ProxyConfigurer.Collections {
                     Values[key].ExpirationToken.Cancel();
                 }
                 Values[key] = value;
-                Task.Delay(value.TimeToLive, CancellationTokenSource.CreateLinkedTokenSource(DisposedToken.Token, value.ExpirationToken.Token).Token).ContinueWith(t => {
+                TimeSpan ttl = value.TimeToLive;
+                if (ttl < MinimumTTL) {
+                    ttl = MinimumTTL;
+                }
+                Task.Delay(ttl, CancellationTokenSource.CreateLinkedTokenSource(DisposedToken.Token, value.ExpirationToken.Token).Token).ContinueWith(t => {
                     if (!t.IsCanceled) {
                         lock (Lock) {
                             Values.Remove(key);

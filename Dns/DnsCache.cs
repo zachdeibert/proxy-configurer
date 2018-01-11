@@ -13,21 +13,40 @@ namespace Com.GitHub.ZachDeibert.ProxyConfigurer.Dns {
         bool Disposed;
         CacheDictionary<DnsQuestion, DnsCacheEntry> Cache;
         UdpClient[] Upstreams;
+        HostsFile HostsFile;
 
         public Task<DnsResourceRecord> this[DnsQuestion question]
             => Cache[question].ContinueWith(t => t.Result.ToResourceRecord(question));
 
         void ResolveHost(DnsQuestion question) {
-            byte[] pkt = new DnsPacket { 
-                RecursionDesired = true, 
-                Questions = new [] { 
-                    question 
-                } 
-            }.ToByteArray(); 
-            Console.WriteLine("Question for {0}", question.QueryName); 
-            foreach (UdpClient upstream in Upstreams) { 
-                upstream.Send(pkt, pkt.Length); 
-            } 
+            IPAddress address;
+            if (IPAddress.TryParse(question.QueryName, out address)) {
+                Console.WriteLine("Ignored question for IP {0}.", address);
+                Cache.Add(question, new DnsCacheEntry {
+                    Data = address.GetAddressBytes(),
+                    TimeToLive = TimeSpan.FromMinutes(1)
+                });
+            } else {
+                byte[] addr = HostsFile[question.QueryName];
+                if (addr == null) {
+                    byte[] pkt = new DnsPacket {
+                        RecursionDesired = true,
+                        Questions = new [] {
+                            question
+                        }
+                    }.ToByteArray();
+                    Console.WriteLine("Question for {0}", question.QueryName);
+                    foreach (UdpClient upstream in Upstreams) {
+                        upstream.Send(pkt, pkt.Length);
+                    }
+                } else {
+                    Console.WriteLine("Found {0} in hosts file.", question.QueryName);
+                    Cache.Add(question, new DnsCacheEntry {
+                        Data = addr,
+                        TimeToLive = HostsFile.TimeToLive
+                    });
+                }
+            }
         }
 
         void ReadCallback(IAsyncResult iar) {
@@ -51,11 +70,7 @@ namespace Com.GitHub.ZachDeibert.ProxyConfigurer.Dns {
                         });
                     }
                 } else {
-                    Console.Error.WriteLine(packet.QueryResponse);
-                    pkt = new DnsPacket {
-                        Questions = packet.Questions
-                    }.ToByteArray();
-                    upstream.Send(pkt, pkt.Length);
+                    Console.Error.WriteLine(packet.ReturnCode);
                 }
             } catch (Exception ex) {
                 Console.Error.WriteLine(ex);
@@ -68,6 +83,7 @@ namespace Com.GitHub.ZachDeibert.ProxyConfigurer.Dns {
                     foreach (UdpClient upstream in Upstreams) {
                         upstream.Dispose();
                     }
+                    HostsFile.Dispose();
                 }
                 Disposed = true;
             }
@@ -92,6 +108,7 @@ namespace Com.GitHub.ZachDeibert.ProxyConfigurer.Dns {
                 upstream.BeginReceive(ReadCallback, upstream);
                 return upstream;
             }).ToArray();
+            HostsFile = new HostsFile(cfg);
         }
     }
 }

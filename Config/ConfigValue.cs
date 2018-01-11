@@ -32,6 +32,15 @@ namespace Com.GitHub.ZachDeibert.ProxyConfigurer.Config {
             }
         }
 
+        public double ToDouble(double def = -1) {
+            double val;
+            if (Value != null && double.TryParse(Value, out val)) {
+                return val;
+            } else {
+                return def;
+            }
+        }
+
         public ConfigValue(string key, string value) {
             Key = key;
             Value = value;
