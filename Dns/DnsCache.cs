@@ -5,39 +5,29 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Com.GitHub.ZachDeibert.ProxyConfigurer.Collections;
 using Com.GitHub.ZachDeibert.ProxyConfigurer.Config;
 
 namespace Com.GitHub.ZachDeibert.ProxyConfigurer.Dns {
     public class DnsCache : IDisposable {
         bool Disposed;
-        Dictionary<DnsQuestion, DnsCacheEntry> Cache;
-        Dictionary<DnsQuestion, CancellationTokenSource> Callbacks;
+        CacheDictionary<DnsQuestion, DnsCacheEntry> Cache;
         UdpClient[] Upstreams;
 
-        public Task<DnsResourceRecord> this[DnsQuestion question] {
-            get {
-                if (Cache.ContainsKey(question)) {
-                    return Task.FromResult(Cache[question].ToResourceRecord(question));
-                } else {
-                    CancellationTokenSource source;
-                    if (Callbacks.ContainsKey(question)) {
-                        source = Callbacks[question];
-                    } else {
-                        source = Callbacks[question] = new CancellationTokenSource();
-                        byte[] pkt = new DnsPacket {
-                            RecursionDesired = true,
-                            Questions = new [] {
-                                question
-                            }
-                        }.ToByteArray();
-                        Console.WriteLine("Question for {0}", question.QueryName);
-                        foreach (UdpClient upstream in Upstreams) {
-                            upstream.Send(pkt, pkt.Length);
-                        }
-                    }
-                    return Task.Delay(int.MaxValue, source.Token).ContinueWith(t => Cache[question].ToResourceRecord(question));
-                }
-            }
+        public Task<DnsResourceRecord> this[DnsQuestion question]
+            => Cache[question].ContinueWith(t => t.Result.ToResourceRecord(question));
+
+        void ResolveHost(DnsQuestion question) {
+            byte[] pkt = new DnsPacket { 
+                RecursionDesired = true, 
+                Questions = new [] { 
+                    question 
+                } 
+            }.ToByteArray(); 
+            Console.WriteLine("Question for {0}", question.QueryName); 
+            foreach (UdpClient upstream in Upstreams) { 
+                upstream.Send(pkt, pkt.Length); 
+            } 
         }
 
         void ReadCallback(IAsyncResult iar) {
@@ -55,14 +45,10 @@ namespace Com.GitHub.ZachDeibert.ProxyConfigurer.Dns {
                             Type = answer.Type,
                             Class = answer.Class
                         };
-                        Cache[question] = new DnsCacheEntry {
+                        Cache.Add(question, new DnsCacheEntry {
                             Data = answer.Data,
-                            EndOfLife = DateTime.Now + TimeSpan.FromSeconds(answer.TimeToLive)
-                        };
-                        if (Callbacks.ContainsKey(question)) {
-                            Callbacks[question].Cancel();
-                            Callbacks.Remove(question);
-                        }
+                            TimeToLive = TimeSpan.FromSeconds(answer.TimeToLive)
+                        });
                     }
                 } else {
                     Console.Error.WriteLine(packet.QueryResponse);
@@ -92,8 +78,8 @@ namespace Com.GitHub.ZachDeibert.ProxyConfigurer.Dns {
         }
 
         public DnsCache(ConfigFile cfg) {
-            Cache = new Dictionary<DnsQuestion, DnsCacheEntry>();
-            Callbacks = new Dictionary<DnsQuestion, CancellationTokenSource>();
+            Cache = new CacheDictionary<DnsQuestion, DnsCacheEntry>();
+            Cache.CacheMiss += ResolveHost;
             string[] upstreamAddresses = cfg["DNS"]["upstream"].ToString("8.8.8.8").Split(' ');
             if (upstreamAddresses.Length == 0 || (upstreamAddresses.Length == 1 && upstreamAddresses[0] == "")) {
                 upstreamAddresses = new [] {
